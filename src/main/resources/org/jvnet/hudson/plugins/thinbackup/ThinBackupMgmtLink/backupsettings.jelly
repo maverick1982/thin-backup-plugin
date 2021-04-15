@@ -102,7 +102,7 @@
                         help="/plugin/thinBackup/help/help-backupAdditionalFiles.html"
                         checked="${it.configuration.backupAdditionalFiles}"
                         name="backupAdditionalFiles">
-                        <f:entry title="Files included in backup (regular expression)" field="backupAdditionalFilesRegex">
+                        <f:entry title="Files included in backup (wildcards **/* allowed)" field="backupAdditionalFilesRegex">
                             <f:textbox value="${it.configuration.backupAdditionalFilesRegex}" name="backupAdditionalFilesRegex"
                                 checkUrl="'${rootURL}/plugin/thinBackup/checkExcludedFilesRegex?value='+escape(this.value)"/>
                         </f:entry>

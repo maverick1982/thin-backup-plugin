@@ -32,12 +32,8 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.DirectoryFileFilter;
-import org.apache.commons.io.filefilter.FileFileFilter;
-import org.apache.commons.io.filefilter.FileFilterUtils;
-import org.apache.commons.io.filefilter.IOFileFilter;
-import org.apache.commons.io.filefilter.RegexFileFilter;
-import org.apache.commons.io.filefilter.TrueFileFilter;
+import org.apache.commons.io.filefilter.*;
+import org.apache.tools.ant.DirectoryScanner;
 import org.jvnet.hudson.plugins.thinbackup.ThinBackupPeriodicWork.BackupType;
 import org.jvnet.hudson.plugins.thinbackup.ThinBackupPluginImpl;
 import org.jvnet.hudson.plugins.thinbackup.utils.ExistsAndReadableFileFilter;
@@ -85,7 +81,7 @@ public class HudsonBackup {
   private final BackupType backupType;
   private final Date latestFullBackupDate;
   private Pattern excludedFilesRegexPattern = null;
-  private Pattern backupAdditionalFilesRegexPattern = null;
+  private String[] backupAdditionalFilesRegexPattern = null;
   private ItemGroup<TopLevelItem> hudson;
 
   public HudsonBackup(final ThinBackupPluginImpl plugin, final BackupType backupType) {
@@ -113,7 +109,7 @@ public class HudsonBackup {
     final String backupAdditionalFilesRegex = plugin.getBackupAdditionalFilesRegex();
     if ((backupAdditionalFilesRegex != null) && !backupAdditionalFilesRegex.trim().isEmpty()) {
       try {
-        backupAdditionalFilesRegexPattern = Pattern.compile(backupAdditionalFilesRegex);
+        backupAdditionalFilesRegexPattern = backupAdditionalFilesRegex.trim().split("\\s*,\\s*");
       } catch (final PatternSyntaxException pse) {
         LOGGER.log(Level.SEVERE,
             String.format(
@@ -296,12 +292,32 @@ public class HudsonBackup {
     LOGGER.info("Backing up additional files...");
 
     if (backupAdditionalFilesRegexPattern != null) {
-      final IOFileFilter addFilesFilter = new RegexFileFilter(backupAdditionalFilesRegexPattern);
 
-      final IOFileFilter filter = FileFilterUtils.and(addFilesFilter, FileFilterUtils.or(DirectoryFileFilter.DIRECTORY,
-          FileFilterUtils.and(getFileAgeDiffFilter(), getExcludedFilesFilter())));
+      DirectoryScanner scanner = new DirectoryScanner();
+      scanner.setIncludes(backupAdditionalFilesRegexPattern);
+      scanner.setBasedir(hudsonHome);
+      scanner.setCaseSensitive(false);
+      scanner.scan();
+      String[] filesName = scanner.getIncludedFiles();
+      String[] directoriesName = scanner.getIncludedDirectories();
 
-      FileUtils.copyDirectory(hudsonHome, backupDirectory, ExistsAndReadableFileFilter.wrapperFilter(filter));
+      final IOFileFilter filter = ExistsAndReadableFileFilter.wrapperFilter(
+          FileFilterUtils.and(getFileAgeDiffFilter(), getExcludedFilesFilter()));
+
+      for (String dirName : directoriesName) {
+        File directory = new File(scanner.getBasedir().getPath() + File.separator + dirName);
+        if(filter.accept(directory)) {
+            FileUtils.copyDirectory(directory, new File(backupDirectory.getPath() + File.separator + dirName));
+        }
+      }
+
+      for (String fileName : filesName) {
+        File file = new File(scanner.getBasedir().getPath() + File.separator + fileName);
+        if(filter.accept(file)) {
+            FileUtils.copyFile(file, new File(backupDirectory + File.separator + fileName));
+        }
+      }
+
     } else {
       LOGGER.info("No Additional File regex was provided: selecting no Additional Files to back up.");
     }

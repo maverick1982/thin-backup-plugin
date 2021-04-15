@@ -137,6 +137,123 @@ public class TestHudsonBackup {
   }
 
   @Test
+  public void testBackupWithAdditionals() throws Exception {
+    new File(jenkinsHome, "additions").mkdir();
+    File additionsDir = new File(jenkinsHome, "additions");
+    new File(additionsDir, "pippo.txt").createNewFile();
+
+    final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
+    when(mockPlugin.isBackupAdditionalFiles()).thenReturn(true);
+//    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("^additions|pippo.txt$");
+    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions/*");
+
+    new HudsonBackup(mockPlugin, BackupType.FULL, new Date(), mockHudson).backup();
+
+    String[] list = backupDir.list();
+    Assert.assertEquals(1, list.length);
+    final File backup = new File(backupDir, list[0]);
+    list = backup.list();
+    Assert.assertEquals(7, list.length);
+
+//    final File additions = new File(backup, "additions");
+//    list = additions.list();
+//    Assert.assertEquals(1, list.length);
+  }
+
+  @Test
+  public void testBackupWithAdditionalsOneFileInSubfolder() throws Exception {
+    new File(jenkinsHome, "additions").mkdir();
+    File additionsDir = new File(jenkinsHome, "additions");
+    new File(additionsDir, "secondAdditions").mkdir();
+    File secondAdditionsDir = new File(additionsDir, "secondAdditions");
+    new File(secondAdditionsDir, "pippo.txt").createNewFile();
+    new File(secondAdditionsDir, "pluto.txt").createNewFile();
+    new File(secondAdditionsDir, "paperino.xml").createNewFile();
+
+    final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
+    when(mockPlugin.isBackupAdditionalFiles()).thenReturn(true);
+//    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("^additions|pippo.txt$");
+    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions");
+
+    new HudsonBackup(mockPlugin, BackupType.FULL, new Date(), mockHudson).backup();
+
+    String[] list = backupDir.list();
+    Assert.assertEquals(1, list.length);
+    final File backup = new File(backupDir, list[0]);
+    list = backup.list();
+    Assert.assertEquals(7, list.length);
+
+    final File additions = new File(backup, "additions");
+    list = additions.list();
+    Assert.assertEquals(1, list.length);
+
+    final File secondAdditions = new File(additions, "secondAdditions");
+    list = secondAdditions.list();
+    Assert.assertEquals(3, list.length);
+  }
+
+  @Test
+  public void testDiffBackupWithAdditionalsOneFileInSubfolder() throws Exception {
+
+    new File(jenkinsHome, "additions").mkdir();
+    File additionsDir = new File(jenkinsHome, "additions");
+    new File(additionsDir, "secondAdditions").mkdir();
+    File secondAdditionsDir = new File(additionsDir, "secondAdditions");
+    new File(secondAdditionsDir, "pippo.txt").createNewFile();
+    new File(secondAdditionsDir, "pluto.txt").createNewFile();
+    new File(secondAdditionsDir, "paperino.xml").createNewFile();
+
+    final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
+    when(mockPlugin.isBackupAdditionalFiles()).thenReturn(true);
+    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions/**/*");
+
+    final Calendar cal = Calendar.getInstance();
+    cal.set(Calendar.MINUTE, cal.get(Calendar.MINUTE) - 10);
+
+    new HudsonBackup(mockPlugin, BackupType.FULL, cal.getTime(), mockHudson).backup();
+
+//    String[] list = backupDir.list();
+//    Assert.assertEquals(1, list.length);
+//    final File backup = new File(backupDir, list[0]);
+//    list = backup.list();
+//    Assert.assertEquals(7, list.length);
+//
+//    final File additions = new File(backup, "additions");
+//    list = additions.list();
+//    Assert.assertEquals(1, list.length);
+//
+//    final File secondAdditions = new File(additions, "secondAdditions");
+//    list = secondAdditions.list();
+//    Assert.assertEquals(3, list.length);
+
+    // fake modification
+    backupDir.listFiles((FileFilter) FileFilterUtils.prefixFileFilter(BackupType.FULL.toString()))[0]
+            .setLastModified(System.currentTimeMillis() - 60000 * 60);
+
+    for (final File globalConfigFile : jenkinsHome.listFiles()) {
+      globalConfigFile.setLastModified(System.currentTimeMillis() - 60000 * 120);
+      if(globalConfigFile.isDirectory()) {
+        for (File file : globalConfigFile.listFiles()) {
+          file.setLastModified(System.currentTimeMillis() - 60000 * 120);
+          if(file.isDirectory()) {
+            for (File listFile : file.listFiles()) {
+              listFile.setLastModified(System.currentTimeMillis() - 60000 * 120);
+            }
+          }
+        }
+      }
+    }
+
+    new HudsonBackup(mockPlugin, BackupType.DIFF, new Date(), mockHudson).backup();
+    //-------------------------------------------------
+
+
+    final File lastDiffBackup = backupDir.listFiles((FileFilter) FileFilterUtils.prefixFileFilter(BackupType.DIFF
+            .toString()))[0];
+    Assert.assertEquals(1, lastDiffBackup.list().length);
+  }
+
+  @Test
   public void testBackupWithoutBuildResults() throws Exception {
     final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
     when(mockPlugin.isBackupBuildResults()).thenReturn(false);
