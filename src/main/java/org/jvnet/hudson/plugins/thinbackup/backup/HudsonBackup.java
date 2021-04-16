@@ -16,29 +16,6 @@
  */
 package org.jvnet.hudson.plugins.thinbackup.backup;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
-
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.*;
-import org.apache.tools.ant.DirectoryScanner;
-import org.jvnet.hudson.plugins.thinbackup.ThinBackupPeriodicWork.BackupType;
-import org.jvnet.hudson.plugins.thinbackup.ThinBackupPluginImpl;
-import org.jvnet.hudson.plugins.thinbackup.utils.ExistsAndReadableFileFilter;
-import org.jvnet.hudson.plugins.thinbackup.utils.Utils;
-
 import hudson.PluginWrapper;
 import hudson.model.ItemGroup;
 import hudson.model.Job;
@@ -46,6 +23,23 @@ import hudson.model.Run;
 import hudson.model.TopLevelItem;
 import hudson.util.RunList;
 import jenkins.model.Jenkins;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.*;
+import org.apache.tools.ant.DirectoryScanner;
+import org.jvnet.hudson.plugins.thinbackup.ThinBackupPeriodicWork.BackupType;
+import org.jvnet.hudson.plugins.thinbackup.ThinBackupPluginImpl;
+import org.jvnet.hudson.plugins.thinbackup.utils.DirectoryScannerBuilder;
+import org.jvnet.hudson.plugins.thinbackup.utils.ExistsAndReadableFileFilter;
+import org.jvnet.hudson.plugins.thinbackup.utils.Utils;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.text.MessageFormat;
+import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.PatternSyntaxException;
 
 public class HudsonBackup {
 
@@ -80,7 +74,7 @@ public class HudsonBackup {
   private final File backupDirectory;
   private final BackupType backupType;
   private final Date latestFullBackupDate;
-  private Pattern excludedFilesRegexPattern = null;
+  private String[] excludedFilesRegexPattern = null;
   private String[] backupAdditionalFilesRegexPattern = null;
   private ItemGroup<TopLevelItem> hudson;
 
@@ -98,7 +92,7 @@ public class HudsonBackup {
     final String excludedFilesRegex = plugin.getExcludedFilesRegex();
     if ((excludedFilesRegex != null) && !excludedFilesRegex.trim().isEmpty()) {
       try {
-        excludedFilesRegexPattern = Pattern.compile(excludedFilesRegex);
+        excludedFilesRegexPattern = excludedFilesRegex.trim().split("\\s*,\\s*");
       } catch (final PatternSyntaxException pse) {
         LOGGER.log(Level.SEVERE, String.format(
             "Regex pattern '%s' for excluding files is invalid, and will be disregarded.", excludedFilesRegex), pse);
@@ -160,22 +154,22 @@ public class HudsonBackup {
       }
     }
 
-    backupGlobalXmls();
+    backupGlobalXmls();                           // DONE
     backupJobs();
-    backupRootFolder(USERS_DIR_NAME);
-    backupNodes();
+    backupRootFolder(USERS_DIR_NAME);             // DONE - Add test
+    backupNodes();                                // DONE
 
     if (plugin.isBackupUserContents()) {
-      backupRootFolder(USERSCONTENTS_DIR_NAME);
+      backupRootFolder(USERSCONTENTS_DIR_NAME);   // DONE - Add test
     }
 
     if (plugin.isBackupPluginArchives()) {
-      backupPluginArchives();
+      backupPluginArchives();                     // DONE - Add tests
     }
     storePluginListIfChanged();
 
     if (plugin.isBackupAdditionalFiles()) {
-      backupAdditionalFiles();
+      backupAdditionalFiles();                     // DONE
     }
 
     (new DirectoryCleaner()).removeEmptyDirectories(backupDirectory);
@@ -190,11 +184,25 @@ public class HudsonBackup {
   private void backupGlobalXmls() throws IOException {
     LOGGER.fine("Backing up global configuration files...");
 
-    IOFileFilter suffixFileFilter = FileFilterUtils.and(FileFileFilter.FILE,
-        FileFilterUtils.suffixFileFilter(XML_FILE_EXTENSION), getFileAgeDiffFilter(), getExcludedFilesFilter());
-    FileUtils.copyDirectory(hudsonHome, backupDirectory, ExistsAndReadableFileFilter.wrapperFilter(suffixFileFilter));
+    DirectoryScanner xmlScanner = new DirectoryScannerBuilder(hudsonHome)
+            .setCaseSensitive(false)
+            .setExcludes(excludedFilesRegexPattern)
+            .addFileNameSelector("*.xml", false)
+            .addFileAgeSelector(latestFullBackupDate, backupType)
+            .build();
+    xmlScanner.scan();
+
+    copyFiles(xmlScanner);
 
     LOGGER.fine("DONE backing up global configuration files.");
+  }
+
+  private void copyFiles(DirectoryScanner xmlScanner) throws IOException {
+    String[] filesName = xmlScanner.getIncludedFiles();
+    for (String fileName : filesName) {
+      File srcFile = new File(xmlScanner.getBasedir() + File.separator + fileName);
+        FileUtils.copyFile(srcFile, new File(backupDirectory.getPath() + File.separator + fileName));
+    }
   }
 
   private void backupJobs() throws IOException {
@@ -274,16 +282,20 @@ public class HudsonBackup {
   private void backupPluginArchives() throws IOException {
     LOGGER.fine("Backing up actual plugin archives...");
 
-    final IOFileFilter pluginArchivesFilter = FileFilterUtils.or(FileFilterUtils.suffixFileFilter(JPI_FILE_EXTENSION),
-        FileFilterUtils.suffixFileFilter(HPI_FILE_EXTENSION));
-    final IOFileFilter disabledPluginMarkersFilter = FileFilterUtils.or(
-        FileFilterUtils.suffixFileFilter(JPI_FILE_EXTENSION + DISABLED_EXTENSION),
-        FileFilterUtils.suffixFileFilter(HPI_FILE_EXTENSION + DISABLED_EXTENSION));
+    String[] includeFiles = new String[4];
+    includeFiles[0] = PLUGINS_DIR_NAME + "/**/*" + JPI_FILE_EXTENSION;
+    includeFiles[1] = PLUGINS_DIR_NAME + "/**/*" + HPI_FILE_EXTENSION;
+    includeFiles[2] = PLUGINS_DIR_NAME + "/**/*" + JPI_FILE_EXTENSION + DISABLED_EXTENSION;
+    includeFiles[3] = PLUGINS_DIR_NAME + "/**/*" + HPI_FILE_EXTENSION + DISABLED_EXTENSION;
+    DirectoryScanner pluginScanner = new DirectoryScannerBuilder(hudsonHome)
+            .setCaseSensitive(false)
+            .setExcludes(excludedFilesRegexPattern)
+            .setIncludes(includeFiles)
+            .addFileAgeSelector(latestFullBackupDate, backupType)
+            .build();
+    pluginScanner.scan();
 
-    final IOFileFilter filter = FileFilterUtils.and(FileFileFilter.FILE,
-        FileFilterUtils.or(pluginArchivesFilter, disabledPluginMarkersFilter));
-
-    backupRootFolder(PLUGINS_DIR_NAME, filter);
+    copyFiles(pluginScanner);
 
     LOGGER.fine("DONE backing up actual plugin archives.");
   }
@@ -293,30 +305,14 @@ public class HudsonBackup {
 
     if (backupAdditionalFilesRegexPattern != null) {
 
-      DirectoryScanner scanner = new DirectoryScanner();
-      scanner.setIncludes(backupAdditionalFilesRegexPattern);
-      scanner.setBasedir(hudsonHome);
-      scanner.setCaseSensitive(false);
-      scanner.scan();
-      String[] filesName = scanner.getIncludedFiles();
-      String[] directoriesName = scanner.getIncludedDirectories();
+      DirectoryScanner additionalFilesScanner = new DirectoryScannerBuilder(hudsonHome)
+              .addFileAgeSelector(latestFullBackupDate, backupType)
+              .setIncludes(backupAdditionalFilesRegexPattern)
+              .setExcludes(excludedFilesRegexPattern)
+              .build();
+      additionalFilesScanner.scan();
 
-      final IOFileFilter filter = ExistsAndReadableFileFilter.wrapperFilter(
-          FileFilterUtils.and(getFileAgeDiffFilter(), getExcludedFilesFilter()));
-
-      for (String dirName : directoriesName) {
-        File directory = new File(scanner.getBasedir().getPath() + File.separator + dirName);
-        if(filter.accept(directory)) {
-            FileUtils.copyDirectory(directory, new File(backupDirectory.getPath() + File.separator + dirName));
-        }
-      }
-
-      for (String fileName : filesName) {
-        File file = new File(scanner.getBasedir().getPath() + File.separator + fileName);
-        if(filter.accept(file)) {
-            FileUtils.copyFile(file, new File(backupDirectory + File.separator + fileName));
-        }
-      }
+      copyFiles(additionalFilesScanner);
 
     } else {
       LOGGER.info("No Additional File regex was provided: selecting no Additional Files to back up.");
@@ -328,8 +324,14 @@ public class HudsonBackup {
   private void backupNodes() throws IOException {
     LOGGER.fine("Backing up nodes configuration files...");
 
-    final IOFileFilter filter = FileFilterUtils.nameFileFilter(CONFIG_XML);
-    backupRootFolder(NODES_DIR_NAME, filter);
+    DirectoryScanner configFilesScanner = new DirectoryScannerBuilder(hudsonHome)
+            .addFileAgeSelector(latestFullBackupDate, backupType)
+            .setExcludes(excludedFilesRegexPattern)
+            .addFileNameSelector(NODES_DIR_NAME + "/**/" + CONFIG_XML, true)
+            .build();
+    configFilesScanner.scan();
+
+    copyFiles(configFilesScanner);
 
     LOGGER.fine("DONE backing up nodes configuration files.");
   }
@@ -368,7 +370,7 @@ public class HudsonBackup {
   private void backupJobConfigFor(final File jobDirectory, final File jobBackupDirectory) throws IOException {
     final IOFileFilter filter = FileFilterUtils.and(FileFilterUtils.or(
         FileFilterUtils.suffixFileFilter(XML_FILE_EXTENSION), FileFilterUtils.nameFileFilter(SVN_CREDENTIALS_FILE_NAME),
-        FileFilterUtils.nameFileFilter(SVN_EXTERNALS_FILE_NAME)), getFileAgeDiffFilter(), getExcludedFilesFilter());
+        FileFilterUtils.nameFileFilter(SVN_EXTERNALS_FILE_NAME)), getFileAgeDiffFilter());
 
     FileUtils.copyDirectory(jobDirectory, jobBackupDirectory, ExistsAndReadableFileFilter.wrapperFilter(filter));
     backupNextBuildNumberFile(jobDirectory, jobBackupDirectory);
@@ -430,7 +432,6 @@ public class HudsonBackup {
       final IOFileFilter fileFilter = FileFilterUtils.and(FileFileFilter.FILE, getFileAgeDiffFilter());
 
       IOFileFilter filter = FileFilterUtils.and(FileFilterUtils.or(changelogFilter, fileFilter),
-          getExcludedFilesFilter(),
           FileFilterUtils.notFileFilter(FileFilterUtils.suffixFileFilter(ZIP_FILE_EXTENSION)));
       FileUtils.copyDirectory(source, destination, ExistsAndReadableFileFilter.wrapperFilter(filter));
     } else if (FileUtils.isSymlink(source)) {
@@ -453,17 +454,16 @@ public class HudsonBackup {
   }
 
   private void backupRootFolder(String folderName) throws IOException {
-    backupRootFolder(folderName, TrueFileFilter.INSTANCE);
-  }
-
-  private void backupRootFolder(String folderName, IOFileFilter fileFilter) throws IOException {
     final File srcDirectory = new File(hudsonHome.getAbsolutePath(), folderName);
     if (srcDirectory.exists() && srcDirectory.isDirectory()) {
       LOGGER.log(Level.FINE, "Backing up {0}...", folderName);
-      final File destDirectory = new File(backupDirectory.getAbsolutePath(), folderName);
-      IOFileFilter filter = FileFilterUtils.and(fileFilter, getFileAgeDiffFilter(), getExcludedFilesFilter());
-      filter = FileFilterUtils.or(filter, DirectoryFileFilter.DIRECTORY);
-      FileUtils.copyDirectory(srcDirectory, destDirectory, ExistsAndReadableFileFilter.wrapperFilter(filter));
+      DirectoryScanner allFilesScanner = new DirectoryScannerBuilder(srcDirectory)
+              .setExcludes(excludedFilesRegexPattern)
+              .addFileAgeSelector(latestFullBackupDate, backupType)
+              .build();
+      allFilesScanner.scan();
+
+      copyFiles(allFilesScanner);
       LOGGER.log(Level.FINE, "DONE backing up {0}.", folderName);
     }
   }
@@ -562,16 +562,6 @@ public class HudsonBackup {
 
     if (backupType == BackupType.DIFF) {
       result = FileFilterUtils.ageFileFilter(latestFullBackupDate, false);
-    }
-
-    return result;
-  }
-
-  private IOFileFilter getExcludedFilesFilter() {
-    IOFileFilter result = FileFilterUtils.trueFileFilter();
-
-    if (excludedFilesRegexPattern != null) {
-      result = FileFilterUtils.notFileFilter(new RegexFileFilter(excludedFilesRegexPattern));
     }
 
     return result;

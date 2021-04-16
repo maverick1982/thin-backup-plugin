@@ -102,7 +102,7 @@ public class TestHudsonBackup {
   @Test
   public void testBackupWithExcludes() throws Exception {
     final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
-    when(mockPlugin.getExcludedFilesRegex()).thenReturn("^.*\\.(log)$");
+    when(mockPlugin.getExcludedFilesRegex()).thenReturn("**/*.log");
 
     new HudsonBackup(mockPlugin, BackupType.FULL, new Date(), mockHudson).backup();
 
@@ -144,7 +144,6 @@ public class TestHudsonBackup {
 
     final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
     when(mockPlugin.isBackupAdditionalFiles()).thenReturn(true);
-//    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("^additions|pippo.txt$");
     when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions/*");
 
     new HudsonBackup(mockPlugin, BackupType.FULL, new Date(), mockHudson).backup();
@@ -173,7 +172,7 @@ public class TestHudsonBackup {
     final ThinBackupPluginImpl mockPlugin = TestHelper.createMockPlugin(jenkinsHome, backupDir);
     when(mockPlugin.isBackupAdditionalFiles()).thenReturn(true);
 //    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("^additions|pippo.txt$");
-    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions");
+    when(mockPlugin.getBackupAdditionalFilesRegex()).thenReturn("additions/");
 
     new HudsonBackup(mockPlugin, BackupType.FULL, new Date(), mockHudson).backup();
 
